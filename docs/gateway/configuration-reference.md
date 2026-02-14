@@ -728,10 +728,11 @@ Periodic heartbeat runs.
     defaults: {
       compaction: {
         mode: "safeguard", // default | safeguard
-        reserveTokensFloor: 24000,
+        reserveTokensFloor: 20000, // 0 disables the floor
+        maxHistoryShare: 0.5, // 0.1 to 0.9
         memoryFlush: {
           enabled: true,
-          softThresholdTokens: 6000,
+          softThresholdTokens: 4000,
           systemPrompt: "Session nearing compaction. Store durable memories now.",
           prompt: "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store.",
         },
@@ -741,8 +742,22 @@ Periodic heartbeat runs.
 }
 ```
 
-- `mode`: `default` or `safeguard` (chunked summarization for long histories). See [Compaction](/concepts/compaction).
-- `memoryFlush`: silent agentic turn before auto-compaction to store durable memories. Skipped when workspace is read-only.
+Compaction options:
+
+- `mode`: `default` or `safeguard`. Default: `safeguard`.
+- `reserveTokensFloor`: minimum reserve tokens OpenClaw enforces for Pi compaction. Default: `20000`; set `0` to disable.
+- `maxHistoryShare`: history budget share used by safeguard compaction. Range: `0.1` to `0.9`. Default: `0.5`.
+- `memoryFlush.enabled`: enable pre-compaction memory flush. Default: `true`.
+- `memoryFlush.softThresholdTokens`: run flush when within this many tokens of compaction threshold. Default: `4000`.
+- `memoryFlush.prompt`: user prompt for the flush turn. If missing, OpenClaw uses a built-in prompt with `NO_REPLY` guidance.
+- `memoryFlush.systemPrompt`: extra system prompt for the flush turn. If missing, OpenClaw uses a built-in system prompt with `NO_REPLY` guidance.
+
+Notes:
+
+- `memoryFlush` is a silent agentic turn before auto-compaction to store durable memories.
+- Memory flush is skipped when the workspace is read-only.
+- Compaction settings live under `agents.defaults.compaction` (global defaults for all agents).
+- See [Compaction](/concepts/compaction) and [Session management + compaction](/reference/session-management-compaction).
 
 ### `agents.defaults.contextPruning`
 
