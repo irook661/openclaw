@@ -44,8 +44,10 @@ export function resolveExtraParams(params: {
 }
 
 type CacheRetention = "none" | "short" | "long";
+type StreamTransport = "sse" | "websocket" | "auto";
 type CacheRetentionStreamOptions = Partial<SimpleStreamOptions> & {
   cacheRetention?: CacheRetention;
+  transport?: StreamTransport;
   user?: string;
   headers?: Record<string, string>;
 };
@@ -259,11 +261,13 @@ function createOpenAIResponsesStoreWrapper(baseStreamFn: StreamFn | undefined): 
 
 function createCodexDefaultTransportWrapper(baseStreamFn: StreamFn | undefined): StreamFn {
   const underlying = baseStreamFn ?? streamSimple;
-  return (model, context, options) =>
-    underlying(model, context, {
+  return (model, context, options) => {
+    const currentTransport = (options as { transport?: StreamTransport } | undefined)?.transport;
+    return underlying(model, context, {
       ...options,
-      transport: options?.transport ?? "auto",
+      transport: currentTransport ?? "auto",
     });
+  };
 }
 
 function isAnthropic1MModel(modelId: string): boolean {
