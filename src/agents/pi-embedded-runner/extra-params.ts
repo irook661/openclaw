@@ -46,6 +46,8 @@ export function resolveExtraParams(params: {
 type CacheRetention = "none" | "short" | "long";
 type CacheRetentionStreamOptions = Partial<SimpleStreamOptions> & {
   cacheRetention?: CacheRetention;
+  user?: string;
+  headers?: Record<string, string>;
 };
 
 /**
@@ -123,6 +125,20 @@ function createStreamFnWithExtraParams(
   } else if (transport != null) {
     const transportSummary = typeof transport === "string" ? transport : typeof transport;
     log.warn(`ignoring invalid transport param: ${transportSummary}`);
+  }
+  if (typeof extraParams.user === "string" && extraParams.user.trim()) {
+    streamParams.user = extraParams.user.trim();
+  }
+  if (extraParams.headers && typeof extraParams.headers === "object") {
+    const normalizedHeaders = Object.fromEntries(
+      Object.entries(extraParams.headers as Record<string, unknown>).filter(
+        ([key, value]) =>
+          key.trim().length > 0 && typeof value === "string" && value.trim().length > 0,
+      ),
+    ) as Record<string, string>;
+    if (Object.keys(normalizedHeaders).length > 0) {
+      streamParams.headers = normalizedHeaders;
+    }
   }
   const cacheRetention = resolveCacheRetention(extraParams, provider);
   if (cacheRetention) {

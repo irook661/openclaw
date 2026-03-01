@@ -230,6 +230,7 @@ export async function runEmbeddedPiAgent(
 
       let provider = (params.provider ?? DEFAULT_PROVIDER).trim() || DEFAULT_PROVIDER;
       let modelId = (params.model ?? DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+      const upstreamSessionKey = (params.sessionKey?.trim() || params.sessionId).trim();
       const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
       const fallbackConfigured = hasConfiguredModelFallbacks({
         cfg: params.config,
@@ -571,6 +572,19 @@ export async function runEmbeddedPiAgent(
 
           const prompt =
             provider === "anthropic" ? scrubAnthropicRefusalMagic(params.prompt) : params.prompt;
+          const streamParams = { ...params.streamParams };
+          if (
+            upstreamSessionKey &&
+            (model.api === "openai-completions" || model.api === "openai-responses")
+          ) {
+            if (!streamParams.user) {
+              streamParams.user = upstreamSessionKey;
+            }
+            streamParams.headers = {
+              ...streamParams.headers,
+              "x-openclaw-session-id": upstreamSessionKey,
+            };
+          }
 
           const attempt = await runEmbeddedAttempt({
             sessionId: params.sessionId,
@@ -628,7 +642,7 @@ export async function runEmbeddedPiAgent(
             onAgentEvent: params.onAgentEvent,
             extraSystemPrompt: params.extraSystemPrompt,
             inputProvenance: params.inputProvenance,
-            streamParams: params.streamParams,
+            streamParams,
             ownerNumbers: params.ownerNumbers,
             enforceFinalTag: params.enforceFinalTag,
           });

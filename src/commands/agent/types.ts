@@ -13,6 +13,10 @@ export type AgentStreamParams = {
   /** Provider stream params override (best-effort). */
   temperature?: number;
   maxTokens?: number;
+  /** OpenAI-compatible user identifier forwarded to upstream providers. */
+  user?: string;
+  /** Additional request headers forwarded to upstream providers. */
+  headers?: Record<string, string>;
 };
 
 export type AgentRunContext = {
