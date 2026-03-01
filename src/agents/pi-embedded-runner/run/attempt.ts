@@ -254,6 +254,79 @@ function summarizeSessionContext(messages: AgentMessage[]): {
   };
 }
 
+type OpenClawPersonalizationPayload = {
+  about_user_message?: string;
+  about_model_message?: string;
+  name_user_message?: string;
+  role_user_message?: string;
+  traits_model_message?: string;
+  other_user_message?: string;
+  disabled_tools?: string[];
+};
+
+const PERSONALIZATION_MAX_FIELD_CHARS = 12_000;
+const PERSONALIZATION_TOTAL_MAX_CHARS = 48_000;
+const DEFAULT_PERSONALIZATION_PROVIDER_ALLOWLIST = "rook_ultra";
+
+function clampPersonalizationText(value: string, budget: { remaining: number }): string {
+  if (!value || budget.remaining <= 0) {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const fieldBudget = Math.max(0, Math.min(PERSONALIZATION_MAX_FIELD_CHARS, budget.remaining));
+  if (fieldBudget <= 0) {
+    return "";
+  }
+  const clamped = trimmed.length <= fieldBudget ? trimmed : `${trimmed.slice(0, fieldBudget)}…`;
+  budget.remaining = Math.max(0, budget.remaining - clamped.length);
+  return clamped;
+}
+
+function buildOpenclawPersonalizationFromBootstrapFiles(
+  files: Array<{ name?: string; content?: string; missing?: boolean }>,
+): OpenClawPersonalizationPayload | undefined {
+  if (!Array.isArray(files) || files.length === 0) {
+    return undefined;
+  }
+  const byName = (name: string): string | undefined => {
+    const hit = files.find((file) => file?.name === name && !file?.missing);
+    return typeof hit?.content === "string" ? hit.content : undefined;
+  };
+  const budget = { remaining: PERSONALIZATION_TOTAL_MAX_CHARS };
+  const payload: OpenClawPersonalizationPayload = {
+    traits_model_message: clampPersonalizationText(byName("SOUL.md") ?? "", budget) || undefined,
+    about_model_message: clampPersonalizationText(byName("AGENTS.md") ?? "", budget) || undefined,
+    role_user_message: clampPersonalizationText(byName("IDENTITY.md") ?? "", budget) || undefined,
+    about_user_message: clampPersonalizationText(byName("USER.md") ?? "", budget) || undefined,
+  };
+  const hasAny = Object.values(payload).some(
+    (value) => typeof value === "string" && value.trim().length > 0,
+  );
+  return hasAny ? payload : undefined;
+}
+
+function resolvePersonalizationProviderAllowlist(): Set<string> {
+  const raw =
+    process.env.OPENCLAW_PERSONALIZATION_PROVIDER_ALLOWLIST ??
+    DEFAULT_PERSONALIZATION_PROVIDER_ALLOWLIST;
+  const values = raw
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set(values);
+}
+
+function shouldInjectBootstrapPersonalization(provider: string): boolean {
+  if (!provider.trim()) {
+    return false;
+  }
+  const allowlist = resolvePersonalizationProviderAllowlist();
+  return allowlist.has(provider.trim().toLowerCase());
+}
+
 export async function runEmbeddedAttempt(
   params: EmbeddedRunAttemptParams,
 ): Promise<EmbeddedRunAttemptResult> {
@@ -313,6 +386,11 @@ export async function runEmbeddedAttempt(
         sessionId: params.sessionId,
         warn: makeBootstrapWarn({ sessionLabel, warn: (message) => log.warn(message) }),
       });
+    const upstreamPersonalizationFromBootstrap = shouldInjectBootstrapPersonalization(
+      params.provider,
+    )
+      ? buildOpenclawPersonalizationFromBootstrapFiles(hookAdjustedBootstrapFiles)
+      : undefined;
     const workspaceNotes = hookAdjustedBootstrapFiles.some(
       (file) => file.name === DEFAULT_BOOTSTRAP_FILENAME && !file.missing,
     )
@@ -701,12 +779,27 @@ export async function runEmbeddedAttempt(
         activeSession.agent.streamFn = streamSimple;
       }
 
+      const streamParamsWithPersonalization = (() => {
+        if (!upstreamPersonalizationFromBootstrap) {
+          return params.streamParams;
+        }
+        const existing = params.streamParams?.openclawPersonalization;
+        const mergedPersonalization = {
+          ...upstreamPersonalizationFromBootstrap,
+          ...existing,
+        };
+        return {
+          ...params.streamParams,
+          openclawPersonalization: mergedPersonalization,
+        };
+      })();
+
       applyExtraParamsToAgent(
         activeSession.agent,
         params.config,
         params.provider,
         params.modelId,
-        params.streamParams,
+        streamParamsWithPersonalization,
         params.thinkLevel,
         sessionAgentId,
       );

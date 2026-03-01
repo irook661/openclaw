@@ -17,6 +17,16 @@ export type AgentStreamParams = {
   user?: string;
   /** Additional request headers forwarded to upstream providers. */
   headers?: Record<string, string>;
+  /** Optional personalization payload forwarded as `openclaw_personalization`. */
+  openclawPersonalization?: {
+    about_user_message?: string;
+    about_model_message?: string;
+    name_user_message?: string;
+    role_user_message?: string;
+    traits_model_message?: string;
+    other_user_message?: string;
+    disabled_tools?: string[];
+  };
 };
 
 export type AgentRunContext = {

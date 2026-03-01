@@ -45,11 +45,21 @@ export function resolveExtraParams(params: {
 
 type CacheRetention = "none" | "short" | "long";
 type StreamTransport = "sse" | "websocket" | "auto";
+type OpenClawPersonalizationPayload = {
+  about_user_message?: string;
+  about_model_message?: string;
+  name_user_message?: string;
+  role_user_message?: string;
+  traits_model_message?: string;
+  other_user_message?: string;
+  disabled_tools?: string[];
+};
 type CacheRetentionStreamOptions = Partial<SimpleStreamOptions> & {
   cacheRetention?: CacheRetention;
   transport?: StreamTransport;
   user?: string;
   headers?: Record<string, string>;
+  openclawPersonalization?: OpenClawPersonalizationPayload;
 };
 
 /**
@@ -142,6 +152,44 @@ function createStreamFnWithExtraParams(
       streamParams.headers = normalizedHeaders;
     }
   }
+  if (
+    extraParams.openclawPersonalization &&
+    typeof extraParams.openclawPersonalization === "object" &&
+    !Array.isArray(extraParams.openclawPersonalization)
+  ) {
+    const raw = extraParams.openclawPersonalization as Record<string, unknown>;
+    const asString = (key: keyof OpenClawPersonalizationPayload): string | undefined => {
+      const value = raw[key];
+      return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+    };
+    const disabledTools = Array.isArray(raw.disabled_tools)
+      ? raw.disabled_tools
+          .map((value) => (typeof value === "string" ? value.trim() : ""))
+          .filter((value) => value.length > 0)
+      : Array.isArray(raw.disabledTools)
+        ? (raw.disabledTools as unknown[])
+            .map((value) => (typeof value === "string" ? value.trim() : ""))
+            .filter((value) => value.length > 0)
+        : undefined;
+    const normalized = {
+      about_user_message: asString("about_user_message"),
+      about_model_message: asString("about_model_message"),
+      name_user_message: asString("name_user_message"),
+      role_user_message: asString("role_user_message"),
+      traits_model_message: asString("traits_model_message"),
+      other_user_message: asString("other_user_message"),
+      disabled_tools: disabledTools,
+    } satisfies OpenClawPersonalizationPayload;
+    if (
+      Object.values(normalized).some(
+        (value) =>
+          (typeof value === "string" && value.trim().length > 0) ||
+          (Array.isArray(value) && value.length > 0),
+      )
+    ) {
+      streamParams.openclawPersonalization = normalized;
+    }
+  }
   const cacheRetention = resolveCacheRetention(extraParams, provider);
   if (cacheRetention) {
     streamParams.cacheRetention = cacheRetention;
@@ -179,9 +227,25 @@ function createStreamFnWithExtraParams(
           compat: { ...model.compat, openRouterRouting: providerRouting },
         } as unknown as typeof model)
       : model;
-    return underlying(effectiveModel, context, {
+    const mergedOptions = {
       ...streamParams,
       ...options,
+    };
+    const personalization = streamParams.openclawPersonalization;
+    if (!personalization) {
+      return underlying(effectiveModel, context, mergedOptions);
+    }
+    const { openclawPersonalization: _unusedPersonalization, ...baseOptions } =
+      mergedOptions as CacheRetentionStreamOptions;
+    const originalOnPayload = options?.onPayload;
+    return underlying(effectiveModel, context, {
+      ...baseOptions,
+      onPayload: (payload) => {
+        if (payload && typeof payload === "object") {
+          (payload as Record<string, unknown>).openclaw_personalization = personalization;
+        }
+        originalOnPayload?.(payload);
+      },
     });
   };
 
