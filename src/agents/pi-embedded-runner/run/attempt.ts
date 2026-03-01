@@ -264,8 +264,8 @@ type OpenClawPersonalizationPayload = {
   disabled_tools?: string[];
 };
 
-const PERSONALIZATION_MAX_FIELD_CHARS = 12_000;
-const PERSONALIZATION_TOTAL_MAX_CHARS = 48_000;
+const PERSONALIZATION_MAX_FIELD_CHARS = 1_500;
+const PERSONALIZATION_TOTAL_MAX_CHARS = 5_000;
 const DEFAULT_PERSONALIZATION_PROVIDER_ALLOWLIST = "rook_ultra";
 
 function clampPersonalizationText(value: string, budget: { remaining: number }): string {
@@ -280,9 +280,31 @@ function clampPersonalizationText(value: string, budget: { remaining: number }):
   if (fieldBudget <= 0) {
     return "";
   }
-  const clamped = trimmed.length <= fieldBudget ? trimmed : `${trimmed.slice(0, fieldBudget)}…`;
+  const clamped =
+    trimmed.length <= fieldBudget
+      ? trimmed
+      : fieldBudget <= 1
+        ? trimmed.slice(0, fieldBudget)
+        : `${trimmed.slice(0, fieldBudget - 1)}…`;
   budget.remaining = Math.max(0, budget.remaining - clamped.length);
   return clamped;
+}
+
+function extractIdentityName(identityContent: string): string | undefined {
+  const lines = identityContent.split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    const match =
+      line.match(/^-?\s*\*\*Name:\*\*\s*(.+)$/i) ?? line.match(/^-?\s*\**Name\**\s*:\s*(.+)$/i);
+    const value = match?.[1]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 function buildOpenclawPersonalizationFromBootstrapFiles(
@@ -295,11 +317,14 @@ function buildOpenclawPersonalizationFromBootstrapFiles(
     const hit = files.find((file) => file?.name === name && !file?.missing);
     return typeof hit?.content === "string" ? hit.content : undefined;
   };
+  const identityContent = byName("IDENTITY.md") ?? "";
+  const identityName = extractIdentityName(identityContent);
   const budget = { remaining: PERSONALIZATION_TOTAL_MAX_CHARS };
   const payload: OpenClawPersonalizationPayload = {
+    name_user_message: clampPersonalizationText(identityName ?? "", budget) || undefined,
     traits_model_message: clampPersonalizationText(byName("SOUL.md") ?? "", budget) || undefined,
     about_model_message: clampPersonalizationText(byName("AGENTS.md") ?? "", budget) || undefined,
-    role_user_message: clampPersonalizationText(byName("IDENTITY.md") ?? "", budget) || undefined,
+    role_user_message: clampPersonalizationText(identityContent, budget) || undefined,
     about_user_message: clampPersonalizationText(byName("USER.md") ?? "", budget) || undefined,
   };
   const hasAny = Object.values(payload).some(
